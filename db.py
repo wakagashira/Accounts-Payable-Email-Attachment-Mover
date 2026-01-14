@@ -33,6 +33,25 @@ def is_processed(message_id: str) -> bool:
             message_id
         )
         return cursor.fetchone() is not None
+def get_ap_mailboxes():
+    """
+    Returns a list of mailboxes to sync from RaivenSync.dbo.APEmails.
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT Email, Folder
+            FROM dbo.APEmails
+        """)
+        rows = cursor.fetchall()
+
+    return [
+        {
+            "mailbox": row.Email.strip(),
+            "folder": row.Folder.strip()
+        }
+        for row in rows
+    ]
 
 def mark_processed(message):
     with get_connection() as conn:

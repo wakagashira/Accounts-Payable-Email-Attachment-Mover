@@ -1,37 +1,46 @@
 from graph_client import get_messages, get_attachments, add_category
 from invoice_processor import save_attachments
-from db import is_processed, mark_processed
-from config import MAILBOX, SEARCH_KEYWORDS
+from db import is_processed, mark_processed, get_ap_mailboxes
+from config import ENABLE_SUBJECT_FILTER, INVOICE_SUBJECT_KEYWORDS
 
 
 def is_invoice(message):
+    if not ENABLE_SUBJECT_FILTER:
+        return True
+
     subject = (message.get("subject") or "").lower()
-    return any(keyword in subject for keyword in SEARCH_KEYWORDS)
+    return any(keyword in subject for keyword in INVOICE_SUBJECT_KEYWORDS)
 
 
 def run():
-    messages = get_messages(MAILBOX)
+    mailboxes = get_ap_mailboxes()
 
-    for msg in messages:
-        message_id = msg["id"]
+    for cfg in mailboxes:
+        mailbox = cfg["mailbox"]
+        folder = cfg["folder"]
 
-        # Skip if already processed (SQL Server is source of truth)
-        if is_processed(message_id):
-            continue
+        messages = get_messages(mailbox)
 
-        # Skip if not invoice-like
-        if not is_invoice(msg):
-            continue
+        for msg in messages:
+            message_id = msg["id"]
 
-        # 1. Save attachments locally
-        attachments = get_attachments(MAILBOX, message_id)
-        save_attachments(attachments)
+            # Skip if already processed
+            if is_processed(message_id):
+                continue
 
-        # 2. Record message as processed in SQL Server
-        mark_processed(msg)
+            # Skip if subject filter enabled and not matched
+            if not is_invoice(msg):
+                continue
 
-        # 3. Apply Outlook category (non-authoritative, for visibility)
-        add_category(MAILBOX, message_id)
+            # 1. Save attachments to mailbox-specific folder
+            attachments = get_attachments(mailbox, message_id)
+            save_attachments(attachments, folder)
+
+            # 2. Record processed message
+            mark_processed(msg)
+
+            # 3. Tag message in Outlook
+            add_category(mailbox, message_id)
 
 
 if __name__ == "__main__":

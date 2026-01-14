@@ -12,11 +12,25 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 MAILBOX = os.getenv("MAILBOX")
 
 # =====================
-# Invoice logic
+# File handling
 # =====================
 OUTPUT_DIR = "output/invoices"
 ALLOWED_EXTENSIONS = (".pdf", ".docx", ".xlsx")
-SEARCH_KEYWORDS = ["invoice", "bill", "statement"]
+
+# =====================
+# Subject filtering (CONFIGURABLE)
+# =====================
+ENABLE_SUBJECT_FILTER = os.getenv(
+    "ENABLE_SUBJECT_FILTER", "true"
+).lower() == "true"
+
+INVOICE_SUBJECT_KEYWORDS = [
+    kw.strip().lower()
+    for kw in os.getenv(
+        "INVOICE_SUBJECT_KEYWORDS", "invoice,bill,statement"
+    ).split(",")
+    if kw.strip()
+]
 
 # =====================
 # SQL Server (Processed Emails)
@@ -30,3 +44,8 @@ SQL_PASSWORD = os.getenv("SQL_PASSWORD")
 SQL_TRUSTED_CONNECTION = os.getenv(
     "SQL_TRUSTED_CONNECTION", "false"
 ).lower() == "true"
+
+# =====================
+# Mail sync range
+# =====================
+MAIL_LOOKBACK_DAYS = int(os.getenv("MAIL_LOOKBACK_DAYS", "30"))
