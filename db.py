@@ -7,6 +7,7 @@ from config import (
     SQL_TRUSTED_CONNECTION
 )
 
+
 def get_connection():
     if SQL_TRUSTED_CONNECTION:
         conn_str = (
@@ -25,6 +26,7 @@ def get_connection():
         )
     return pyodbc.connect(conn_str)
 
+
 def is_processed(message_id: str) -> bool:
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -33,6 +35,8 @@ def is_processed(message_id: str) -> bool:
             message_id
         )
         return cursor.fetchone() is not None
+
+
 def get_ap_mailboxes():
     """
     Returns a list of mailboxes to sync from RaivenSync.dbo.APEmails.
@@ -53,17 +57,30 @@ def get_ap_mailboxes():
         for row in rows
     ]
 
-def mark_processed(message):
+
+def mark_processed(message, folder: str):
+    """
+    Records a processed email in dbo.ProcessedEmails.
+
+    Stores:
+    - MessageId
+    - Subject
+    - Sender email address
+    - Email_Created_Date (Exchange receivedDateTime)
+    - Folder (partner folder name)
+    """
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO dbo.ProcessedEmails
-            (MessageId, Subject, Sender, ReceivedDateTime)
-            VALUES (?, ?, ?, ?)
-        """,
+                (MessageId, Subject, Sender, Email_Created_Date, Folder)
+            VALUES (?, ?, ?, ?, ?)
+            """,
             message["id"],
             message.get("subject"),
             message.get("from", {}).get("emailAddress", {}).get("address"),
-            message.get("receivedDateTime")
+            message.get("receivedDateTime"),
+            folder,
         )
         conn.commit()
