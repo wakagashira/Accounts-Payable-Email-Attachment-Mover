@@ -1,44 +1,86 @@
-from pathlib import Path
+import os
 import re
-import base64
-import shutil
+from pathlib import Path
 from config import OUTPUT_DIR, ALLOWED_EXTENSIONS
 
-def sanitize_filename(filename: str) -> str:
-    return re.sub(r'[<>:"/\\|?*]', '_', filename)
+
+INVALID_CHARS = r'[<>:"/\\|?*\x00-\x1F]'
+MAX_FILENAME_LENGTH = 150  # Safe margin for Windows paths
+
+
+def _sanitize_filename(name: str) -> str:
+    """
+    Make filenames safe for Windows filesystems.
+    """
+    # Remove invalid characters
+    name = re.sub(INVALID_CHARS, "", name)
+
+    # Collapse whitespace
+    name = re.sub(r"\s+", " ", name)
+
+    # Strip leading/trailing spaces and dots
+    name = name.strip(" .")
+
+    # Enforce max length (preserve extension)
+    stem, ext = os.path.splitext(name)
+    if len(name) > MAX_FILENAME_LENGTH:
+        stem = stem[: MAX_FILENAME_LENGTH - len(ext)]
+        name = f"{stem}{ext}"
+
+    return name
 
 
 def save_attachments(attachments, mailbox_folder):
+    """
+    Saves allowed attachments to:
+      output/invoices/<mailbox_folder>/
+
+    Returns list of saved file paths.
+    """
     saved_files = []
 
-    base_path = Path(OUTPUT_DIR) / mailbox_folder
-    base_path.mkdir(parents=True, exist_ok=True)
+    base_dir = Path(OUTPUT_DIR) / mailbox_folder
+    base_dir.mkdir(parents=True, exist_ok=True)
 
     for att in attachments:
         if att.get("@odata.type") != "#microsoft.graph.fileAttachment":
             continue
 
-        filename = sanitize_filename(att.get("name", ""))
-
-        if not filename.lower().endswith(ALLOWED_EXTENSIONS):
+        name = att.get("name")
+        if not name:
             continue
 
-        content_b64 = att.get("contentBytes")
-        if not content_b64:
+        if not name.lower().endswith(ALLOWED_EXTENSIONS):
             continue
 
-        file_path = base_path / filename
+        safe_name = _sanitize_filename(name)
+        file_path = base_dir / safe_name
 
-        with open(file_path, "wb") as f:
-            f.write(base64.b64decode(content_b64))
+        try:
+            content = att.get("contentBytes")
+            if not content:
+                continue
 
-        saved_files.append(file_path)
+            with open(file_path, "wb") as f:
+                f.write(bytes(att["contentBytes"], encoding="latin1"))
+
+            saved_files.append(file_path)
+
+        except Exception:
+            # If one attachment fails, keep going
+            continue
 
     return saved_files
 
-def archive_file(file_path, mailbox_folder):
-    archive_root = Path("Archived") / mailbox_folder
-    archive_root.mkdir(parents=True, exist_ok=True)
 
-    destination = archive_root / file_path.name
-    shutil.move(str(file_path), str(destination))
+def archive_file(file_path, mailbox_folder):
+    """
+    Moves a processed file to:
+      Archived/<mailbox_folder>/
+    """
+    src = Path(file_path)
+    dest_dir = Path("Archived") / mailbox_folder
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    dest = dest_dir / src.name
+    src.rename(dest)
