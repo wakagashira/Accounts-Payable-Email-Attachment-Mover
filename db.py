@@ -27,27 +27,28 @@ def get_connection():
     return pyodbc.connect(conn_str)
 
 
-def is_processed(message_id: str) -> bool:
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT 1 FROM dbo.ProcessedEmails WHERE MessageId = ?",
-            message_id
-        )
-        return cursor.fetchone() is not None
+# -------------------------
+# Cursor-based helpers (preferred)
+# -------------------------
+
+def is_processed_cur(cursor, message_id: str) -> bool:
+    cursor.execute(
+        "SELECT 1 FROM dbo.ProcessedEmails WHERE MessageId = ?",
+        message_id
+    )
+    return cursor.fetchone() is not None
 
 
-def get_ap_mailboxes():
+def get_ap_mailboxes_cur(cursor):
     """
-    Returns a list of mailboxes to sync from RaivenSync.dbo.APEmails.
+    Returns a list of mailboxes to sync from dbo.APEmails.
+    Uses an existing cursor (no per-call connections).
     """
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT Email, Folder
-            FROM dbo.APEmails
-        """)
-        rows = cursor.fetchall()
+    cursor.execute("""
+        SELECT Email, Folder
+        FROM dbo.APEmails
+    """)
+    rows = cursor.fetchall()
 
     return [
         {
@@ -58,29 +59,42 @@ def get_ap_mailboxes():
     ]
 
 
-def mark_processed(message, folder: str):
+def mark_processed_cur(cursor, message, folder: str):
     """
     Records a processed email in dbo.ProcessedEmails.
-
-    Stores:
-    - MessageId
-    - Subject
-    - Sender email address
-    - Email_Created_Date (Exchange receivedDateTime)
-    - Folder (partner folder name)
     """
+    cursor.execute(
+        """
+        INSERT INTO dbo.ProcessedEmails
+            (MessageId, Subject, Sender, Email_Created_Date, Folder)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        message["id"],
+        message.get("subject"),
+        message.get("from", {}).get("emailAddress", {}).get("address"),
+        message.get("receivedDateTime"),
+        folder
+    )
+
+
+# -------------------------
+# Backwards-compatible wrappers
+# -------------------------
+
+def is_processed(message_id: str) -> bool:
     with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO dbo.ProcessedEmails
-                (MessageId, Subject, Sender, Email_Created_Date, Folder)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            message["id"],
-            message.get("subject"),
-            message.get("from", {}).get("emailAddress", {}).get("address"),
-            message.get("receivedDateTime"),
-            folder,
-        )
+        cur = conn.cursor()
+        return is_processed_cur(cur, message_id)
+
+
+def get_ap_mailboxes():
+    with get_connection() as conn:
+        cur = conn.cursor()
+        return get_ap_mailboxes_cur(cur)
+
+
+def mark_processed(message, folder: str):
+    with get_connection() as conn:
+        cur = conn.cursor()
+        mark_processed_cur(cur, message, folder)
         conn.commit()

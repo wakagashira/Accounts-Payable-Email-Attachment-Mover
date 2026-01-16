@@ -55,3 +55,11 @@ SFTP_USERNAME = os.getenv("SFTP_USERNAME")
 SFTP_PRIVATE_KEY_PATH = os.getenv("SFTP_PRIVATE_KEY_PATH")
 
 SFTP_REMOTE_BASE_DIR = os.getenv("SFTP_REMOTE_BASE_DIR", "/incoming/invoices")
+
+
+# =====================
+# Runtime behavior
+# =====================
+
+LOOP_ENABLED = os.getenv("LOOP_ENABLED", "false").lower() == "true"
+LOOP_SLEEP_SECONDS = int(os.getenv("LOOP_SLEEP_SECONDS", "3600"))  # 1 hour
