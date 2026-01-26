@@ -1,5 +1,5 @@
 from graph_client import get_messages, get_attachments, add_category
-from invoice_processor import save_attachments, archive_file
+from invoice_processor import save_attachments, cleanup_file
 from sftp_client import SFTPClient
 from db import get_connection, is_processed_cur, mark_processed_cur, get_ap_mailboxes_cur
 from config import (
@@ -29,7 +29,8 @@ def is_invoice(message):
 def run_once():
     logger.info("Starting Raiven Invoice Sync cycle")
 
-    sftp = SFTPClient()  # lazy connect (connects only when upload happens)
+    # Lazy SFTP client (connects only when upload happens)
+    sftp = SFTPClient()
 
     # One SQL connection per cycle (critical fix)
     with get_connection() as conn:
@@ -39,7 +40,7 @@ def run_once():
         logger.info(f"Loaded {len(mailboxes)} mailbox(es) from SQL")
 
         total_uploaded = 0
-        total_archived = 0
+        total_cleaned = 0
         total_marked = 0
 
         for cfg in mailboxes:
@@ -63,16 +64,20 @@ def run_once():
                 try:
                     message_id = msg["id"]
 
+                    # Skip if already processed
                     if is_processed_cur(cursor, message_id):
                         continue
 
+                    # Optional subject filter
                     if not is_invoice(msg):
                         continue
 
+                    # Pull attachments
                     attachments = get_attachments(mailbox, message_id)
                     saved_files = save_attachments(attachments, folder)
 
-                    # If nothing saved (no allowed extensions, no fileAttachment types, etc.)
+                    # If nothing was saved (no allowed ext, no fileAttachment types, etc.)
+                    # still mark processed so we don't repeatedly revisit the same message
                     if not saved_files:
                         mark_processed_cur(cursor, msg, folder)
                         conn.commit()
@@ -80,19 +85,26 @@ def run_once():
                         total_marked += 1
                         continue
 
-                    # Upload + archive each file
+                    # Upload + cleanup each file (cleanup = ARCHIVE or DELETE)
                     for file_path in saved_files:
-                        sftp.upload_file(file_path, folder)
+                        # upload_file() handles remote-exists check and will rename if needed
+                        remote_name = sftp.upload_file(file_path, folder)
                         total_uploaded += 1
 
-                        archive_file(file_path, folder)
-                        total_archived += 1
+                        # cleanup_file() handles POST_UPLOAD_ACTION (ARCHIVE or DELETE)
+                        cleanup_file(file_path, folder)
+                        total_cleaned += 1
 
-                    # Mark processed only after successful upload+archive
+                        logger.info(
+                            f"Uploaded {file_path.name} -> {folder}/{remote_name}"
+                        )
+
+                    # Mark message processed only after successful upload+cleanup
                     mark_processed_cur(cursor, msg, folder)
                     conn.commit()
                     total_marked += 1
 
+                    # Category for visibility (non-authoritative)
                     add_category(mailbox, message_id)
 
                 except Exception as exc:
@@ -104,7 +116,7 @@ def run_once():
     sftp.close()
 
     logger.info(
-        f"Invoice Sync cycle complete | uploaded={total_uploaded} archived={total_archived} marked={total_marked}"
+        f"Invoice Sync cycle complete | uploaded={total_uploaded} cleaned={total_cleaned} marked={total_marked}"
     )
 
 

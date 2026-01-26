@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime
 import paramiko
 from config import (
     SFTP_ENABLED,
@@ -76,31 +77,65 @@ class SFTPClient:
             except FileNotFoundError:
                 self.sftp.mkdir(current)
 
-    def upload_file(self, local_path: Path, mailbox_folder: str):
+    def _remote_exists(self, remote_path: str) -> bool:
+        try:
+            self.sftp.stat(remote_path)
+            return True
+        except FileNotFoundError:
+            return False
+
+    def _pick_remote_path(self, remote_dir: str, local_path: Path) -> tuple[str, str]:
+        """
+        Returns (remote_path, remote_filename).
+        If the filename already exists remotely, append UTC timestamp to make it unique.
+        """
+        base = local_path.stem
+        ext = local_path.suffix
+
+        remote_name = local_path.name
+        remote_path = f"{remote_dir}/{remote_name}"
+
+        if self._remote_exists(remote_path):
+            ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            remote_name = f"{base}_{ts}{ext}"
+            remote_path = f"{remote_dir}/{remote_name}"
+
+        return remote_path, remote_name
+
+    def upload_file(self, local_path: Path, mailbox_folder: str) -> str:
         """
         Upload a file with one reconnect+retry if the server dropped the socket.
+
+        Also checks whether the target filename already exists on SFTP:
+          - If it exists, uploads using <name>_YYYYMMDD_HHMMSS.ext
+          - Returns the remote filename used
         """
         if not self.enabled:
-            return
+            return Path(local_path).name
 
         local_path = Path(local_path)
         remote_dir = f"{SFTP_REMOTE_BASE_DIR}/{mailbox_folder}"
-        remote_path = f"{remote_dir}/{local_path.name}"
 
         # Attempt #1
         try:
             self.connect()
             self._ensure_remote_dir(remote_dir)
+
+            remote_path, remote_name = self._pick_remote_path(remote_dir, local_path)
             self.sftp.put(str(local_path), remote_path)
-            return
-        except (OSError, EOFError, paramiko.SSHException) as exc:
+            return remote_name
+
+        except (OSError, EOFError, paramiko.SSHException):
             # Retry once after reconnect
             self._connected = False
             self.close()
 
             self.connect()
             self._ensure_remote_dir(remote_dir)
+
+            remote_path, remote_name = self._pick_remote_path(remote_dir, local_path)
             self.sftp.put(str(local_path), remote_path)
+            return remote_name
 
     def close(self):
         try:

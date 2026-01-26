@@ -56,10 +56,16 @@ SFTP_PRIVATE_KEY_PATH = os.getenv("SFTP_PRIVATE_KEY_PATH")
 
 SFTP_REMOTE_BASE_DIR = os.getenv("SFTP_REMOTE_BASE_DIR", "/incoming/invoices")
 
+# =====================
+# Post-upload behavior
+# =====================
+# What to do with files after successful SFTP upload:
+# - ARCHIVE: move to Archived/<partner>/
+# - DELETE: delete from output folder
+POST_UPLOAD_ACTION = os.getenv("POST_UPLOAD_ACTION", "ARCHIVE").strip().upper()
 
 # =====================
 # Runtime behavior
 # =====================
-
 LOOP_ENABLED = os.getenv("LOOP_ENABLED", "false").lower() == "true"
 LOOP_SLEEP_SECONDS = int(os.getenv("LOOP_SLEEP_SECONDS", "3600"))  # 1 hour

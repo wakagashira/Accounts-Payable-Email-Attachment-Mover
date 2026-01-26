@@ -1,7 +1,7 @@
 import os
 import re
 from pathlib import Path
-from config import OUTPUT_DIR, ALLOWED_EXTENSIONS
+from config import OUTPUT_DIR, ALLOWED_EXTENSIONS, POST_UPLOAD_ACTION
 
 
 INVALID_CHARS = r'[<>:"/\\|?*\x00-\x1F]'
@@ -61,6 +61,8 @@ def save_attachments(attachments, mailbox_folder):
             if not content:
                 continue
 
+            # NOTE: This assumes contentBytes is already a string in the current project flow.
+            # If you later switch to base64 decoding, this will change.
             with open(file_path, "wb") as f:
                 f.write(bytes(att["contentBytes"], encoding="latin1"))
 
@@ -73,14 +75,44 @@ def save_attachments(attachments, mailbox_folder):
     return saved_files
 
 
-def archive_file(file_path, mailbox_folder):
+def cleanup_file(file_path, mailbox_folder):
     """
-    Moves a processed file to:
-      Archived/<mailbox_folder>/
+    Post-upload file handling controlled by POST_UPLOAD_ACTION:
+
+    - ARCHIVE: move to Archived/<mailbox_folder>/
+    - DELETE: delete the file from output
     """
+    action = (POST_UPLOAD_ACTION or "ARCHIVE").upper()
     src = Path(file_path)
+
+    if not src.exists():
+        return
+
+    if action == "DELETE":
+        src.unlink()
+        return
+
+    # Default: ARCHIVE
     dest_dir = Path("Archived") / mailbox_folder
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     dest = dest_dir / src.name
+
+    # If an archive file already exists, make it unique to avoid overwrite
+    if dest.exists():
+        base = dest.stem
+        ext = dest.suffix
+        i = 1
+        while True:
+            candidate = dest_dir / f"{base}_{i}{ext}"
+            if not candidate.exists():
+                dest = candidate
+                break
+            i += 1
+
     src.rename(dest)
+
+
+# Backwards-compatible wrapper (older code may still call archive_file)
+def archive_file(file_path, mailbox_folder):
+    cleanup_file(file_path, mailbox_folder)
