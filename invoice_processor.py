@@ -1,5 +1,7 @@
 import os
 import re
+import base64
+import logging
 from pathlib import Path
 from config import OUTPUT_DIR, ALLOWED_EXTENSIONS, POST_UPLOAD_ACTION
 
@@ -7,6 +9,7 @@ from config import OUTPUT_DIR, ALLOWED_EXTENSIONS, POST_UPLOAD_ACTION
 INVALID_CHARS = r'[<>:"/\\|?*\x00-\x1F]'
 MAX_FILENAME_LENGTH = 150  # Safe margin for Windows paths
 
+logger = logging.getLogger(__name__)
 
 def _sanitize_filename(name: str) -> str:
     """
@@ -15,17 +18,17 @@ def _sanitize_filename(name: str) -> str:
     # Remove invalid characters
     name = re.sub(INVALID_CHARS, "", name)
 
-    # Collapse whitespace
-    name = re.sub(r"\s+", " ", name)
+    # Trim whitespace
+    name = name.strip()
 
-    # Strip leading/trailing spaces and dots
-    name = name.strip(" .")
-
-    # Enforce max length (preserve extension)
-    stem, ext = os.path.splitext(name)
+    # Prevent super long filenames
     if len(name) > MAX_FILENAME_LENGTH:
-        stem = stem[: MAX_FILENAME_LENGTH - len(ext)]
-        name = f"{stem}{ext}"
+        base, ext = os.path.splitext(name)
+        name = base[: (MAX_FILENAME_LENGTH - len(ext))] + ext
+
+    # Fallback if name becomes empty
+    if not name:
+        name = "attachment"
 
     return name
 
@@ -61,15 +64,13 @@ def save_attachments(attachments, mailbox_folder):
             if not content:
                 continue
 
-            # NOTE: This assumes contentBytes is already a string in the current project flow.
-            # If you later switch to base64 decoding, this will change.
             with open(file_path, "wb") as f:
-                f.write(bytes(att["contentBytes"], encoding="latin1"))
+                f.write(base64.b64decode(content))
 
             saved_files.append(file_path)
 
-        except Exception:
-            # If one attachment fails, keep going
+        except Exception as exc:
+            logger.warning(f"Failed to save attachment '{name}' for folder '{mailbox_folder}': {exc}")
             continue
 
     return saved_files

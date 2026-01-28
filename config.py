@@ -4,8 +4,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # =====================
-# Azure / Mailbox
+# Azure / Microsoft Graph
 # =====================
+# NOTE: v3 multi-tenant mode reads tenant/app credentials from SQL (dbo.Tenants).
+# These env vars are kept only for backwards compatibility / ad-hoc testing.
 TENANT_ID = os.getenv("TENANT_ID")
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
@@ -38,7 +40,6 @@ SQL_TRUSTED_CONNECTION = (
 # Mail Sync Window
 # =====================
 MAIL_SYNC_TYPE = os.getenv("MAIL_SYNC_TYPE", "Days")  # Days | Span
-
 MAIL_LOOKBACK_DAYS = int(os.getenv("MAIL_LOOKBACK_DAYS", "30"))
 
 MAIL_FROM_DATE = os.getenv("MAIL_FROM_DATE")  # YYYY-MM-DD

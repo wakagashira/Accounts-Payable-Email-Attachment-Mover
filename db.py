@@ -4,7 +4,7 @@ from config import (
     SQL_DATABASE,
     SQL_USERNAME,
     SQL_PASSWORD,
-    SQL_TRUSTED_CONNECTION
+    SQL_TRUSTED_CONNECTION,
 )
 
 
@@ -39,30 +39,8 @@ def is_processed_cur(cursor, message_id: str) -> bool:
     return cursor.fetchone() is not None
 
 
-def get_ap_mailboxes_cur(cursor):
-    """
-    Returns a list of mailboxes to sync from dbo.APEmails.
-    Uses an existing cursor (no per-call connections).
-    """
-    cursor.execute("""
-        SELECT Email, Folder
-        FROM dbo.APEmails
-    """)
-    rows = cursor.fetchall()
-
-    return [
-        {
-            "mailbox": row.Email.strip(),
-            "folder": row.Folder.strip()
-        }
-        for row in rows
-    ]
-
-
 def mark_processed_cur(cursor, message, folder: str):
-    """
-    Records a processed email in dbo.ProcessedEmails.
-    """
+    """Records a processed email in dbo.ProcessedEmails."""
     cursor.execute(
         """
         INSERT INTO dbo.ProcessedEmails
@@ -73,8 +51,56 @@ def mark_processed_cur(cursor, message, folder: str):
         message.get("subject"),
         message.get("from", {}).get("emailAddress", {}).get("address"),
         message.get("receivedDateTime"),
-        folder
+        folder,
     )
+
+
+def get_active_tenants_cur(cursor):
+    """Return active tenants from dbo.Tenants.
+
+    Expected schema:
+      TenantID (uniqueidentifier), Name, Active (bit), Client_id, Client_secret
+    """
+    cursor.execute(
+        """
+        SELECT TenantID, Name, Client_id, Client_secret
+        FROM dbo.Tenants
+        WHERE Active = 1
+        ORDER BY Name
+        """
+    )
+    rows = cursor.fetchall()
+
+    return [
+        {
+            "tenant_id": str(row.TenantID).strip(),
+            "tenant_name": row.Name.strip(),
+            "client_id": row.Client_id.strip(),
+            "client_secret": row.Client_secret,
+        }
+        for row in rows
+    ]
+
+
+def get_ap_mailboxes_for_tenant_cur(cursor, tenant_name: str):
+    """Return mailboxes for a tenant from dbo.APEmails."""
+    cursor.execute(
+        """
+        SELECT Email, Folder
+        FROM dbo.APEmails
+        WHERE TenantName = ?
+        ORDER BY Email
+        """,
+        tenant_name,
+    )
+    rows = cursor.fetchall()
+    return [
+        {
+            "mailbox": row.Email.strip(),
+            "folder": row.Folder.strip(),
+        }
+        for row in rows
+    ]
 
 
 # -------------------------
@@ -85,12 +111,6 @@ def is_processed(message_id: str) -> bool:
     with get_connection() as conn:
         cur = conn.cursor()
         return is_processed_cur(cur, message_id)
-
-
-def get_ap_mailboxes():
-    with get_connection() as conn:
-        cur = conn.cursor()
-        return get_ap_mailboxes_cur(cur)
 
 
 def mark_processed(message, folder: str):
